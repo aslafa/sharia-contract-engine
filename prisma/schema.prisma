@@ -1,0 +1,869 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==============================================================================
+// ENUMS
+// ==============================================================================
+
+enum OrganizationType {
+  ISLAMIC_BANK              // Bank Umum Syariah (BUS)
+  ISLAMIC_BUSINESS_UNIT     // Unit Usaha Syariah (UUS)
+  BPRS                      // Bank Perekonomian Rakyat Syariah
+  ISLAMIC_COOPERATIVE       // Koperasi Simpan Pinjam dan Pembiayaan Syariah (KSPPS)
+  BMT                       // Baitul Maal wat Tamwil
+  ISLAMIC_FINTECH           // Fintech Syariah
+  OTHER
+}
+
+enum SubscriptionTier {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+  CUSTOM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  INACTIVE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum CustomerType {
+  INDIVIDUAL
+  CORPORATE
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  SHARIA_CHECK_PENDING
+  APPROVED
+  REJECTED
+  CONVERTED_TO_CONTRACT
+}
+
+enum ContractStatus {
+  DRAFT
+  SHARIA_VALIDATION_PENDING
+  SHARIA_NON_COMPLIANT
+  PENDING_INTERNAL_APPROVAL
+  APPROVED
+  PENDING_CUSTOMER_SIGNATURE
+  PENDING_INSTITUTION_SIGNATURE
+  ACTIVE
+  TERMINATED
+  COMPLETED
+  DEFAULTED
+}
+
+enum AkadCategory {
+  MURABAHAH
+  IJARAH
+  MUSYARAKAH
+  MUDHARABAH
+}
+
+enum RuleSeverity {
+  CRITICAL        // Hard violation - prevents contract execution
+  HIGH            // Needs Sharia Board special approval
+  MEDIUM          // Warning, recommendation to revise
+  INFO            // Informational advisory
+}
+
+enum ValidationStatus {
+  COMPLIANT
+  NON_COMPLIANT
+  WARNING
+  NEEDS_MANUAL_REVIEW
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+enum ApprovalAction {
+  SUBMIT
+  APPROVE
+  REJECT
+  REQUEST_REVISION
+  DELEGATE
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  SHARIA_VALIDATE
+  SUBMIT_APPROVAL
+  APPROVE_CONTRACT
+  REJECT_CONTRACT
+  SIGN_CONTRACT
+  EXPORT_DOCUMENT
+  REGISTRATION_SUBMIT
+  REGISTRATION_STATUS_CHANGE
+  USER_CREATE
+  ROLE_CHANGE
+  DOCUMENT_UPLOAD
+  CONFIG_CHANGE
+  CROSS_TENANT_VIOLATION_BLOCKED
+}
+
+enum RegistrationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  NEED_REVISION
+  APPROVED
+  REJECTED
+  DEMO_SCHEDULED
+  CONTRACT_PENDING
+  PAYMENT_PENDING
+  ACTIVE
+}
+
+enum SystemRole {
+  SUPER_ADMIN
+  INSTITUTION_ADMIN
+  FINANCING_OFFICER
+  LEGAL_OFFICER
+  COMPLIANCE_OFFICER
+  SHARIA_REVIEWER
+  MANAGEMENT
+  AUDITOR
+}
+
+enum NotificationType {
+  SYSTEM
+  APPROVAL_REQUEST
+  APPROVAL_RESULT
+  SHARIA_ALERT
+  CONTRACT_EXPIRATION
+  BILLING_ALERT
+}
+
+// ==============================================================================
+// MULTI-TENANCY & IAM (Organizations, Users, Roles, Permissions)
+// ==============================================================================
+
+model Organization {
+  id                  String             @id @default(uuid())
+  code                String             @unique // e.g. "BPRS-ALBARAKAH", "BMT-AMANAH"
+  name                String
+  legalName           String?
+  type                OrganizationType   @default(ISLAMIC_COOPERATIVE)
+  taxId               String?            // NPWP
+  licenseNumber       String?            // OJK / Kemenkop permit number
+  address             String?
+  city                String?
+  province            String?
+  country             String             @default("ID")
+  postalCode          String?
+  phone               String?
+  email               String?
+  website             String?
+  logoUrl             String?
+  settings            Json?              @default("{}") // Org-specific branding, approval flow rules, etc.
+  isActive            Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  // Multi-tenant relations
+  members             OrganizationMember[]
+  roles               Role[]
+  subscriptions       Subscription[]
+  invoices            Invoice[]
+  customers           Customer[]
+  financingApplications FinancingApplication[]
+  contracts           Contract[]
+  shariaRules         ShariaRule[]
+  validationResults   ValidationResult[]
+  contractDocuments   ContractDocument[]
+  approvalRequests    ApprovalRequest[]
+  approvalHistory     ApprovalHistory[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  paymentRecords      PaymentRecord[]
+  registrations       InstitutionRegistration[]
+
+  @@map("organizations")
+}
+
+model User {
+  id                  String             @id @default(uuid())
+  supabaseAuthId      String?            @unique // Supabase auth.users UID
+  email               String             @unique
+  fullName            String
+  phone               String?
+  avatarUrl           String?
+  passwordHash        String?            // Argon2id hash. Never plaintext; never sent to client.
+  isSuperAdmin        Boolean            @default(false)
+  mfaEnabled          Boolean            @default(false)
+  mfaSecret           String?
+  isActive            Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  // Relations
+  memberships         OrganizationMember[]
+  createdApplications FinancingApplication[] @relation("ApplicationCreator")
+  assignedApplications FinancingApplication[] @relation("ApplicationAssignee")
+  createdContracts    Contract[]             @relation("ContractCreator")
+  requestedApprovals  ApprovalRequest[]      @relation("ApprovalRequester")
+  approvalDecisions   ApprovalHistory[]      @relation("ApprovalReviewer")
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+
+  @@map("users")
+}
+
+model OrganizationMember {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  userId              String
+  roleId              String
+  department          String?
+  employeeId          String?
+  isOwner             Boolean            @default(false)
+  isActive            Boolean            @default(true)
+  joinedAt            DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role                Role               @relation(fields: [roleId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Role {
+  id                  String             @id @default(uuid())
+  organizationId      String?            // Null for system-wide default templates, specific UUID for tenant custom roles
+  name                String             // e.g. "Sharia Board Member (DPS)", "Compliance Officer", "Loan Officer", "Branch Manager"
+  code                String             // e.g. "DPS", "COMPLIANCE", "OFFICER", "ORG_ADMIN"
+  systemRole          SystemRole?        // Normalized mapping to standard SCE 8 system roles
+  description         String?
+  isSystemRole        Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  organization        Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members             OrganizationMember[]
+  permissions         RolePermission[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model Permission {
+  id                  String             @id @default(uuid())
+  code                String             @unique // e.g. "contracts:create", "contracts:approve", "sharia_rules:manage"
+  category            String             // "CONTRACTS", "SHARIA_RULES", "APPROVALS", "ORGANIZATION", "BILLING"
+  name                String
+  description         String?
+  createdAt           DateTime           @default(now())
+
+  rolePermissions     RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id                  String             @id @default(uuid())
+  roleId              String
+  permissionId        String
+
+  role                Role               @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission          Permission         @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ==============================================================================
+// BILLING & SUBSCRIPTIONS
+// ==============================================================================
+
+model Subscription {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  tier                SubscriptionTier   @default(STARTER)
+  status              SubscriptionStatus @default(TRIALING)
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  cancelAtPeriodEnd   Boolean            @default(false)
+  contractLimit       Int                @default(50) // Max contracts per month
+  userLimit           Int                @default(5)
+  monthlyFee          Decimal            @default(0) @db.Decimal(15, 2)
+  metadata            Json?              @default("{}")
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoices            Invoice[]
+
+  @@index([organizationId])
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  subscriptionId      String?
+  invoiceNumber       String             @unique
+  amountDue           Decimal            @db.Decimal(15, 2)
+  amountPaid          Decimal            @default(0) @db.Decimal(15, 2)
+  currency            String             @default("IDR")
+  status              InvoiceStatus      @default(PENDING)
+  issueDate           DateTime           @default(now())
+  dueDate             DateTime
+  paidAt              DateTime?
+  paymentUrl          String?
+  paymentRef          String?
+  metadata            Json?              @default("{}")
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription        Subscription?      @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  paymentRecords      PaymentRecord[]
+
+  @@index([organizationId])
+  @@map("invoices")
+}
+
+// ==============================================================================
+// FINANCING APPLICATIONS & AKAD MASTER
+// ==============================================================================
+
+model AkadType {
+  id                  String             @id @default(uuid())
+  code                String             @unique // "MURABAHAH", "IJARAH", "MUSYARAKAH", "MUDHARABAH"
+  name                String             // "Akad Murabahah", "Akad Ijarah Muntahiya Bittamlik"
+  category            AkadCategory
+  description         String?
+  fatwaDsnMuiRef      String?            // DSN-MUI fatwa references (e.g. "Fatwa DSN-MUI No: 04/DSN-MUI/IV/2000")
+  standardTemplate    String?            @db.Text
+  isActive            Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  contracts           Contract[]
+  financingApplications FinancingApplication[]
+  shariaRules         ShariaRule[]
+
+  @@map("akad_types")
+}
+
+model Customer {
+  id                    String                 @id @default(uuid())
+  organizationId        String
+  cifNumber             String?                // Customer Identification File
+  type                  CustomerType           @default(INDIVIDUAL)
+  name                  String
+  identifierNumber      String                 // NIK (Individu) or NPWP/NIB (Korporasi)
+  email                 String?
+  phone                 String?
+  address               String?
+  city                  String?
+  province              String?
+  postalCode            String?
+  annualIncomeOrRevenue Decimal?               @db.Decimal(18, 2)
+  riskRating            String?                @default("LOW") // LOW, MEDIUM, HIGH
+  amlStatus             String                 @default("CLEARED") // CLEARED, PENDING, FLAGGED
+  isVerified            Boolean                @default(false)
+  metadata              Json?                  @default("{}")
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  applications          FinancingApplication[]
+  paymentRecords        PaymentRecord[]
+
+  @@unique([organizationId, identifierNumber])
+  @@index([organizationId, name])
+  @@index([organizationId, amlStatus])
+  @@map("customers")
+}
+
+model FinancingApplication {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  customerId          String?
+  createdById         String
+  assignedToId        String?
+  akadTypeId          String
+  applicationNumber   String             @unique // e.g. "APP-2026-00129"
+  applicantName       String
+  applicantIdentifier String             // NIK / KTP / NIB
+  applicantPhone      String?
+  applicantEmail      String?
+  applicantAddress    String?
+  proposedAmount      Decimal            @db.Decimal(18, 2)
+  tenorMonths         Int
+  purpose             String             // Consumer purchase, working capital, investment, asset leasing
+  status              ApplicationStatus  @default(DRAFT)
+  submissionDate      DateTime?
+  metadata            Json?              @default("{}") // Income verification, collateral info, applicant financial data
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer            Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdBy           User               @relation("ApplicationCreator", fields: [createdById], references: [id])
+  assignedTo          User?              @relation("ApplicationAssignee", fields: [assignedToId], references: [id])
+  akadType            AkadType           @relation(fields: [akadTypeId], references: [id])
+  contract            Contract?
+
+  @@index([organizationId, status])
+  @@index([organizationId, customerId])
+  @@index([organizationId, createdAt])
+  @@map("financing_applications")
+}
+
+// ==============================================================================
+// CORE CONTRACT ENGINE & AKAD SPECIFICS (Murabahah, Ijarah, Musyarakah, Mudharabah)
+// ==============================================================================
+
+model Contract {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  applicationId       String?            @unique
+  akadTypeId          String
+  createdById         String
+  contractNumber      String             @unique // e.g. "SCE/2026/MRB/00432"
+  title               String
+  firstPartyName      String             // The Islamic Financial Institution
+  firstPartySigner    String             // Representative director/branch manager
+  secondPartyName     String             // Customer / Nasabah
+  secondPartyIdentifier String           // NIK / Corporate tax ID
+  totalFinancingAmount Decimal           @db.Decimal(18, 2)
+  tenorMonths         Int
+  startDate           DateTime
+  endDate             DateTime
+  status              ContractStatus     @default(DRAFT)
+  isShariaCompliant   Boolean            @default(false)
+  shariaNotes         String?            @db.Text
+  termsAndConditions  String?            @db.Text
+  generatedContent    String?            @db.Text // Full rendered contract markdown or HTML
+  metadata            Json?              @default("{}")
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  // Tenant & Core relations
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  application         FinancingApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  akadType            AkadType           @relation(fields: [akadTypeId], references: [id])
+  createdBy           User               @relation("ContractCreator", fields: [createdById], references: [id])
+
+  // Four Akad Dedicated Detail Modules
+  murabahahDetail     MurabahahDetail?
+  ijarahDetail        IjarahDetail?
+  musyarakahDetail    MusyarakahDetail?
+  mudharabahDetail    MudharabahDetail?
+
+  // Associated lifecycle records
+  validationResults   ValidationResult[]
+  documents           ContractDocument[]
+  approvalRequests    ApprovalRequest[]
+  paymentRecords      PaymentRecord[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@map("contracts")
+}
+
+// --- AKAD MODULE 1: MURABAHAH (Cost-Plus Sale) ---
+model MurabahahDetail {
+  id                  String             @id @default(uuid())
+  contractId          String             @unique
+  costPrice           Decimal            @db.Decimal(18, 2) // Harga Pokok Pembelian
+  profitMargin        Decimal            @db.Decimal(18, 2) // Marjin Keuntungan Disepakati
+  sellingPrice        Decimal            @db.Decimal(18, 2) // Total Harga Jual (Pokok + Marjin)
+  downPaymentUrbun    Decimal            @default(0) @db.Decimal(18, 2) // Uang Muka (Urbun)
+  remainingBalance    Decimal            @db.Decimal(18, 2) // Sisa Piutang Murabahah
+  installmentPerMonth Decimal            @db.Decimal(18, 2) // Angsuran per Bulan
+  commodityDescription String            // Spesifikasi Barang/Objek Akad
+  supplierName        String?            // Pemasok/Vendor
+  wakalahContractRef  String?            // Optional: Nomor Akad Wakalah jika Bank mewakilkan nasabah membeli
+  isGoodsReceived     Boolean            @default(true) // Syarat sah Murabahah: kepemilikan/penguasaan objek
+  deliveryDate        DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  contract            Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@map("murabahah_details")
+}
+
+// --- AKAD MODULE 2: IJARAH (Leasing / IMBT) ---
+model IjarahDetail {
+  id                  String             @id @default(uuid())
+  contractId          String             @unique
+  assetDescription    String             // Objek Sewa (Barang Modal / Jasa)
+  assetValue          Decimal            @db.Decimal(18, 2) // Nilai Objek Sewa
+  rentalFeePerMonth   Decimal            @db.Decimal(18, 2) // Ujrah per Bulan
+  totalRentalFee      Decimal            @db.Decimal(18, 2) // Total Akumulasi Biaya Sewa
+  rentalPeriodMonths  Int                // Masa Sewa
+  isImbt              Boolean            @default(false) // Ijarah Muntahiya Bittamlik (Sewa Diakhiri Perpindahan Hak Milik)
+  transferMethod      String?            // "HIBAH" (Gift) or "JUAL" (Purchase with nominal price)
+  waadPromiseRef      String?            // Janji pemindahan hak milik (Wa'd)
+  maintenanceTerms    String?            // Pemeliharaan pokok vs rutin sesuai syariah
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  contract            Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@map("ijarah_details")
+}
+
+// --- AKAD MODULE 3: MUSYARAKAH (Partnership Financing) ---
+model MusyarakahDetail {
+  id                  String             @id @default(uuid())
+  contractId          String             @unique
+  businessScope       String             // Bidang Usaha Kemitraan
+  totalProjectCapital Decimal            @db.Decimal(18, 2) // Modal Proyek Keseluruhan
+  institutionCapital  Decimal            @db.Decimal(18, 2) // Kontribusi Modal Lembaga (Porsi Porsi %)
+  partnerCapital      Decimal            @db.Decimal(18, 2) // Kontribusi Modal Nasabah (Porsi %)
+  institutionNisbah   Decimal            @db.Decimal(5, 2)  // Nisbah Keuntungan Lembaga (%)
+  partnerNisbah       Decimal            @db.Decimal(5, 2)  // Nisbah Keuntungan Nasabah (%)
+  lossSharingFormula  String             @default("CAPITAL_RATIO") // Sesuai fiqh: Rugi finansial ditanggung sebanding modal
+  projectedProfitRate Decimal?           @db.Decimal(5, 2)  // Proyeksi keuntungan (indikatif)
+  calculationBasis    String             @default("REVENUE_SHARING") // "REVENUE_SHARING" or "PROFIT_SHARING"
+  distributionPeriod  String             @default("MONTHLY") // Bulanan / Triwulan / Akhir Akad
+  managementAgreement String?            // Ketentuan peran pengelola proyek
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  contract            Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@map("musyarakah_details")
+}
+
+// --- AKAD MODULE 4: MUDHARABAH (Trust Financing) ---
+model MudharabahDetail {
+  id                  String             @id @default(uuid())
+  contractId          String             @unique
+  businessField       String             // Usaha yang dibiayai
+  capitalShahibulMal  Decimal            @db.Decimal(18, 2) // 100% Modal dari Lembaga (Shahibul Mal)
+  mudharibName        String             // Nama Nasabah Pengelola (Mudharib)
+  shahibulMalNisbah   Decimal            @db.Decimal(5, 2)  // Nisbah Keuntungan Shahibul Mal (%)
+  mudharibNisbah      Decimal            @db.Decimal(5, 2)  // Nisbah Keuntungan Mudharib (%)
+  calculationMethod   String             @default("REVENUE_SHARING") // Pendapatan bruto atau laba bersih
+  reportingFrequency  String             @default("MONTHLY") // Pelaporan keuangan Mudharib
+  capitalReturnTerms  String             // Jadwal pengembalian modal pokok
+  lossTerms           String             @default("FINANCIAL_LOSS_BY_SHAHIBUL_MAL_UNLESS_NEGLIGENCE") // Syariah standard
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  contract            Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@map("mudharabah_details")
+}
+
+// ==============================================================================
+// SHARIA RULE ENGINE & COMPLIANCE
+// ==============================================================================
+
+model ShariaRule {
+  id                  String             @id @default(uuid())
+  organizationId      String?            // Null if global standard rule (DSN-MUI/AAOIFI), or tenant specific override
+  akadTypeId          String?            // If null, applies globally to all Islamic transactions
+  ruleCode            String             @unique // e.g. "RULE-MRB-01-OWNERSHIP-FIRST", "RULE-RIBA-ZERO-INTEREST"
+  title               String
+  description         String             @db.Text
+  dsnMuiFatwaRef      String?            // Official DSN-MUI reference
+  aaoifiStandardRef   String?            // AAOIFI Shariah Standard reference
+  severity            RuleSeverity       @default(CRITICAL)
+  validationLogic     Json               // Evaluated rule constraints (JSON Schema or DSL expression)
+  remediationGuidance String?            @db.Text // Guidance if non-compliant
+  isActive            Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  organization        Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  akadType            AkadType?          @relation(fields: [akadTypeId], references: [id], onDelete: SetNull)
+  validationResults   ValidationResultItem[]
+
+  @@index([organizationId])
+  @@index([akadTypeId])
+  @@map("sharia_rules")
+}
+
+model ValidationResult {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  contractId          String
+  status              ValidationStatus   @default(COMPLIANT)
+  overallScore        Int                @default(100) // 0 - 100 Sharia Compliance index
+  summary             String?            @db.Text
+  validatedAt         DateTime           @default(now())
+  metadata            Json?              @default("{}")
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contract            Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  items               ValidationResultItem[]
+
+  @@index([organizationId])
+  @@index([contractId])
+  @@map("validation_results")
+}
+
+model ValidationResultItem {
+  id                  String             @id @default(uuid())
+  validationResultId  String
+  shariaRuleId        String
+  ruleCode            String
+  ruleTitle           String
+  severity            RuleSeverity
+  isCompliant         Boolean
+  message             String             @db.Text
+  suggestedCorrection String?            @db.Text
+
+  validationResult    ValidationResult   @relation(fields: [validationResultId], references: [id], onDelete: Cascade)
+  shariaRule          ShariaRule         @relation(fields: [shariaRuleId], references: [id])
+
+  @@index([validationResultId])
+  @@index([shariaRuleId])
+  @@map("validation_result_items")
+}
+
+// ==============================================================================
+// CONTRACT DOCUMENTS & SECURE STORAGE
+// ==============================================================================
+
+model ContractDocument {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  contractId          String
+  fileName            String
+  fileType            String             // "APPLICATION_PDF", "IMAGE_JPEG", "DOCX"
+  fileSizeBytes       Int
+  storagePath         String             // Key/Path in secure Supabase Storage / S3
+  documentCategory    String             // "GENERATED_CONTRACT", "CUSTOMER_KTP", "COLLATERAL_CERTIFICATE", "WAKALAH_AGREEMENT", "SIGNED_CONTRACT"
+  checksumSha256      String?            // Tamper-evident hash
+  isSigned            Boolean            @default(false)
+  uploadedAt          DateTime           @default(now())
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contract            Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([contractId])
+  @@map("contract_documents")
+}
+
+// ==============================================================================
+// APPROVAL WORKFLOW ENGINE
+// ==============================================================================
+
+model ApprovalRequest {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  contractId          String
+  requestedById       String
+  currentStep         Int                @default(1)
+  totalSteps          Int                @default(2) // e.g. Step 1: Compliance / Sharia Review, Step 2: Branch Head
+  status              ApprovalStatus     @default(PENDING)
+  title               String
+  notes               String?            @db.Text
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contract            Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  requestedBy         User               @relation("ApprovalRequester", fields: [requestedById], references: [id])
+  history             ApprovalHistory[]
+
+  @@index([organizationId, status])
+  @@index([contractId])
+  @@map("approval_requests")
+}
+
+model ApprovalHistory {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  approvalRequestId   String
+  reviewedById        String
+  stepNumber          Int
+  action              ApprovalAction
+  comments            String?            @db.Text
+  actionTimestamp     DateTime           @default(now())
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  approvalRequest     ApprovalRequest    @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  reviewedBy          User               @relation("ApprovalReviewer", fields: [reviewedById], references: [id])
+
+  @@index([organizationId])
+  @@index([approvalRequestId])
+  @@map("approval_history")
+}
+
+// ==============================================================================
+// NOTIFICATIONS & AUDIT LOGGING
+// ==============================================================================
+
+model Notification {
+  id                  String             @id @default(uuid())
+  organizationId      String?            // Null if system wide, or tenant specific
+  userId              String
+  type                NotificationType   @default(SYSTEM)
+  title               String
+  message             String             @db.Text
+  linkUrl             String?
+  isRead              Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+
+  organization        Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([organizationId])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id                  String             @id @default(uuid())
+  organizationId      String?
+  userId              String?
+  action              AuditAction
+  entityName          String             // "Contract", "MurabahahDetail", "ShariaRule", "User"
+  entityId            String
+  details             Json?              // Diff or context of modification
+  ipAddress           String?
+  userAgent           String?
+  sha256              String?            // Tamper-evident cryptographic hash
+  timestamp           DateTime           @default(now())
+
+  organization        Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, timestamp])
+  @@index([organizationId, sha256])
+  @@index([entityName, entityId])
+  @@map("audit_logs")
+}
+
+// ==============================================================================
+// PAYMENT RECORDS & FINANCIAL TRANSACTIONS
+// ==============================================================================
+
+model PaymentRecord {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  customerId          String?
+  contractId          String?
+  invoiceId           String?
+  paymentReference    String             @unique // e.g. "TRX-2026-0098"
+  paymentMethod       String             // "BANK_TRANSFER_BSI", "VA_MUAMALAT", "QRIS", "INTERNAL_TRANSFER"
+  amount              Decimal            @db.Decimal(18, 2)
+  currency            String             @default("IDR")
+  status              PaymentStatus      @default(PENDING)
+  paidAt              DateTime?
+  notes               String?
+  gatewayPayload      Json?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer            Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contract            Contract?          @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  invoice             Invoice?           @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([organizationId, customerId])
+  @@index([contractId])
+  @@index([invoiceId])
+  @@map("payment_records")
+}
+
+// ==============================================================================
+// INSTITUTIONAL ONBOARDING & REGISTRATION WIZARD
+// ==============================================================================
+
+model InstitutionRegistration {
+  id                      String             @id @default(uuid())
+  registrationNumber      String             @unique // e.g. "REG-2026-0001"
+  status                  RegistrationStatus @default(SUBMITTED)
+  currentStageIndex       Int                @default(1) // 1 to 10 for the onboarding lifecycle
+
+  // Step 1: Institution Information
+  institutionType         OrganizationType
+  institutionName         String
+  legalEntityNumber       String             // Akta Pendirian / SK Kemenkumham
+  businessLicense         String             // Nomor Izin Usaha OJK / Kemenkop
+  officialEmail           String
+  phone                   String
+  officeAddress           String
+  city                    String?
+  province                String?
+
+  // Step 2: Authorized Representative
+  repFullName             String
+  repPosition             String
+  repEmail                String
+  repPhone                String
+
+  // Step 3: Product Requirements
+  requiredAkadModules     Json               // ["MURABAHAH", "IJARAH", "MUSYARAKAH", "MUDHARABAH"]
+  preferredSubscription   SubscriptionTier   @default(PROFESSIONAL)
+  estimatedMonthlyVolume  Int                @default(50)
+
+  // Step 4: Supporting Documents
+  documents               Json               // Array of { category, fileName, fileUrl, fileSizeBytes, sha256 }
+
+  // Step 5: Verification & Onboarding Workflow
+  reviewNotes             String?
+  revisionReason          String?
+  demoScheduledAt         DateTime?
+  contractSignedAt        DateTime?
+  invoiceIssuedAt         DateTime?
+  paymentVerifiedAt       DateTime?
+  activatedAt             DateTime?
+
+  // Linked Organization upon activation
+  approvedOrganizationId  String?
+  approvedOrganization    Organization?      @relation(fields: [approvedOrganizationId], references: [id], onDelete: SetNull)
+
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  @@index([status])
+  @@index([officialEmail])
+  @@map("institution_registrations")
+}
+

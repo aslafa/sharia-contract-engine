@@ -1,0 +1,49 @@
+export const SYSTEM_ROLES = [
+  "SUPER_ADMIN",
+  "INSTITUTION_ADMIN",
+  "FINANCING_OFFICER",
+  "LEGAL_OFFICER",
+  "COMPLIANCE_OFFICER",
+  "SHARIA_REVIEWER",
+  "MANAGEMENT",
+  "AUDITOR",
+] as const;
+
+export type SystemRole = (typeof SYSTEM_ROLES)[number];
+
+export const REGISTRATION_STATUSES = [
+  "SUBMITTED",
+  "UNDER_REVIEW",
+  "NEED_REVISION",
+  "APPROVED",
+  "REJECTED",
+  "DEMO_SCHEDULED",
+  "CONTRACT_PENDING",
+  "PAYMENT_PENDING",
+  "ACTIVE",
+] as const;
+
+export type RegistrationStatus = (typeof REGISTRATION_STATUSES)[number];
+
+export const AUDIT_ACTIONS = [
+  "CREATE",
+  "UPDATE",
+  "DELETE",
+  "LOGIN",
+  "LOGOUT",
+  "SHARIA_VALIDATE",
+  "SUBMIT_APPROVAL",
+  "APPROVE_CONTRACT",
+  "REJECT_CONTRACT",
+  "SIGN_CONTRACT",
+  "EXPORT_DOCUMENT",
+  "REGISTRATION_SUBMIT",
+  "REGISTRATION_STATUS_CHANGE",
+  "USER_CREATE",
+  "ROLE_CHANGE",
+  "DOCUMENT_UPLOAD",
+  "CONFIG_CHANGE",
+  "CROSS_TENANT_VIOLATION_BLOCKED",
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* SCE Corporate Banking Enterprise Palette */
+    --background: 0 0% 100%;
+    --foreground: 218 54% 20%; /* #172B4D Main Text */
+
+    --card: 0 0% 100%;
+    --card-foreground: 218 54% 20%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 218 54% 20%;
+
+    /* Primary Blue #00549c */
+    --primary: 208 100% 31%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary Blue #0F6FB5 */
+    --secondary: 214 55% 98%; /* #F5F8FC Secondary Background */
+    --secondary-foreground: 218 54% 20%;
+
+    --muted: 214 55% 98%;
+    --muted-foreground: 215 16% 47%; /* #64748B Secondary Text */
+
+    /* Accent Light Blue #DCEAF5 */
+    --accent: 206 56% 91%;
+    --accent-foreground: 208 100% 31%;
+
+    /* Danger #DC3545 */
+    --destructive: 354 70% 54%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Border #E2E8F0 */
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 208 100% 31%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom scrollbar for enterprise tables and sidebars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

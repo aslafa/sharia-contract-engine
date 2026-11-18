@@ -1,0 +1,25 @@
+export interface ApiResponse<T = unknown> {
+  success: boolean;
+  message?: string;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+  meta?: {
+    page?: number;
+    limit?: number;
+    total?: number;
+    totalPages?: number;
+  };
+}
+
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  organizationId: string;
+  role: string;
+  permissions: string[];
+}
+
