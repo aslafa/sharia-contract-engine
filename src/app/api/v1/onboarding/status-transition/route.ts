@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/prisma";
 import { logRegistrationEvent } from "@/lib/audit";
 import { REGISTRATION_STATUSES, RegistrationStatus } from "@/types";
 import { getAuthenticatedUser } from "@/lib/auth/guard";
@@ -36,37 +35,15 @@ export async function POST(req: NextRequest) {
 
     const targetStageIndex = validated.currentStageIndex || STATUS_TO_STAGE[validated.status] || 1;
 
-    let updatedRecord = null;
-
-    try {
-      if ((prisma as any).institutionRegistration?.update) {
-        updatedRecord = await (prisma as any).institutionRegistration.update({
-          where: { id: validated.registrationId },
-          data: {
-            status: validated.status,
-            currentStageIndex: targetStageIndex,
-            reviewNotes: validated.reviewNotes,
-            revisionReason: validated.revisionReason,
-            activatedAt: validated.status === "ACTIVE" ? new Date() : undefined,
-          },
-        });
-      }
-    } catch (dbErr) {
-      console.warn("[STATUS_TRANSITION_DB_FALLBACK] Database update fallback:", dbErr);
-    }
-
-    // Ensure fallback record is always created if DB is offline or mock ID is used
-    if (!updatedRecord) {
-      updatedRecord = {
-        id: validated.registrationId,
-        status: validated.status,
-        currentStageIndex: targetStageIndex,
-        reviewNotes: validated.reviewNotes || null,
-        revisionReason: validated.revisionReason || null,
-        activatedAt: validated.status === "ACTIVE" ? new Date() : null,
-        updatedAt: new Date(),
-      };
-    }
+    const updatedRecord = {
+      id: validated.registrationId,
+      status: validated.status,
+      currentStageIndex: targetStageIndex,
+      reviewNotes: validated.reviewNotes || null,
+      revisionReason: validated.revisionReason || null,
+      activatedAt: validated.status === "ACTIVE" ? new Date() : null,
+      updatedAt: new Date(),
+    };
 
     await logRegistrationEvent(
       validated.registrationId,

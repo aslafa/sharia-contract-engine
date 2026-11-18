@@ -1,12 +1,16 @@
 import { DBRepository, DBUser, DBMembership } from "@/lib/db/repository";
 import { verifyPassword } from "./password";
-import { AuthError } from "./prisma-auth";
 import { SYSTEM_ROLE_DEFINITIONS } from "./roles";
 import type { SystemRole } from "./roles";
 
-// Re-exported for routes: json-auth and prisma-auth share the same error type,
-// so switching data sources never changes route error handling.
-export { AuthError };
+export class AuthError extends Error {
+  public status: number;
+  constructor(message: string, status: number = 401) {
+    super(message);
+    this.name = "AuthError";
+    this.status = status;
+  }
+}
 
 /**
  * JSON-backed authentication & tenant membership resolution (temporary data

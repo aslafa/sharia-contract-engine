@@ -4,13 +4,44 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
-  });
+/**
+ * Lazy Prisma client accessor.
+ * Prisma is retained as a future migration target; the operational runtime strictly
+ * uses the JSON repository (data/sce_database.json). This lazy accessor ensures
+ * PrismaClient is NEVER instantiated at module evaluation time during Next.js
+ * builds or API route page-data collection.
+ */
+function getPrismaInstance(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    if (!process.env.DATABASE_URL) {
+      return new Proxy({} as PrismaClient, {
+        get(_target, prop) {
+          throw new Error(
+            `[PRISMA_OFFLINE] Prisma is a future migration target, not the active runtime (attempted to access ${String(
+              prop
+            )}). Operational database is data/sce_database.json.`
+          );
+        },
+      });
+    }
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+    globalForPrisma.prisma = new PrismaClient({
+      log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+    });
+  }
+  return globalForPrisma.prisma;
+}
+
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const instance = getPrismaInstance();
+    const value = (instance as any)[prop];
+    if (typeof value === "function") {
+      return value.bind(instance);
+    }
+    return value;
+  },
+});
 
 /**
  * Tenant Scoped Query Helper

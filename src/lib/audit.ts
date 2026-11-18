@@ -1,6 +1,5 @@
-import { prisma } from "@/lib/db/prisma";
-import type { Prisma } from "@prisma/client";
 import type { AuditAction } from "@/types";
+import { DBRepository } from "@/lib/db/repository";
 
 export interface LogAuditParams {
   organizationId?: string;
@@ -34,7 +33,7 @@ export function getRecentAuditLogs(limit: number = 50): InMemoryAuditEntry[] {
 }
 
 export async function createAuditLog(params: LogAuditParams) {
-  const fallbackEntry: InMemoryAuditEntry = {
+  const entry: InMemoryAuditEntry = {
     id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     organizationId: params.organizationId,
     userId: params.userId,
@@ -47,15 +46,14 @@ export async function createAuditLog(params: LogAuditParams) {
     timestamp: new Date().toISOString(),
   };
 
-  // Always buffer in-memory for resilience
-  inMemoryAuditBuffer.unshift(fallbackEntry);
+  // Buffer in-memory for fast read & resilience
+  inMemoryAuditBuffer.unshift(entry);
   if (inMemoryAuditBuffer.length > 500) {
     inMemoryAuditBuffer.pop();
   }
 
-  // Persist to disk repository store
+  // Persist directly to operational JSON repository (data/sce_database.json)
   try {
-    const { DBRepository } = require("@/lib/db/repository");
     DBRepository.createAuditLogEntry({
       organizationId: params.organizationId,
       userId: params.userId,
@@ -65,32 +63,13 @@ export async function createAuditLog(params: LogAuditParams) {
       details: params.details ? JSON.stringify(params.details) : undefined,
       ipAddress: params.ipAddress,
     });
-  } catch {}
-
-  try {
-    const serializedDetails = params.details
-      ? (JSON.parse(JSON.stringify(params.details)) as Prisma.InputJsonValue)
-      : undefined;
-
-    return await prisma.auditLog.create({
-      data: {
-        organizationId: params.organizationId,
-        userId: params.userId,
-        action: params.action as any,
-        entityName: params.entityName,
-        entityId: params.entityId,
-        details: serializedDetails,
-        ipAddress: params.ipAddress,
-        userAgent: params.userAgent,
-      },
-    });
   } catch (error) {
-    // When DB is offline or mock IDs are used, return the resilient buffered entry
     console.warn(
-      `[AUDIT_LOG_BUFFER] Stored audit action ${params.action} on ${params.entityName}:${params.entityId} in resilient memory buffer.`
+      `[AUDIT_LOG_BUFFER] Stored audit action ${params.action} on ${params.entityName}:${params.entityId} in memory buffer.`
     );
-    return fallbackEntry;
   }
+
+  return entry;
 }
 
 /**

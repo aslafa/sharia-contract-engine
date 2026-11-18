@@ -2366,6 +2366,19 @@ export class DBRepository {
     };
   }
 
+  public static updateContractStatus(
+    contractId: string,
+    status: DBContract["status"]
+  ): DBContract | null {
+    const state = this.load();
+    const target = state.contracts.find((c) => c.id === contractId);
+    if (!target) return null;
+    target.status = status;
+    target.updatedAt = new Date().toISOString();
+    this.save(state);
+    return target;
+  }
+
   public static signAndActivateContract(payload: {
     contractIdOrNumber: string;
     actorName: string;

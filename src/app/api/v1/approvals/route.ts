@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import { DBRepository } from "@/lib/db/repository";
 import { ApiResponse } from "@/types/api";
 import { createAuditLog } from "@/lib/audit";
 import { z } from "zod";
 
 const approvalActionSchema = z.object({
-  contractId: z.string().uuid(),
+  contractId: z.string().min(1),
   action: z.enum(["APPROVE", "REJECT", "REQUEST_REVISION"]),
   comments: z.string().optional(),
 });
@@ -47,12 +47,11 @@ export async function POST(req: NextRequest) {
 
     const { contractId, action, comments } = parsed.data;
 
-    // Verify contract exists and belongs to the tenant
-    const contract = await prisma.contract.findFirst({
-      where: { id: contractId, organizationId: orgId },
-    });
+    // Verify contract exists and belongs to the tenant via DBRepository
+    const result = DBRepository.getContractById(contractId);
+    const contract = result.contract;
 
-    if (!contract) {
+    if (!contract || contract.organizationId !== orgId) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
@@ -70,13 +69,10 @@ export async function POST(req: NextRequest) {
     if (action === "APPROVE") {
       nextStatus = "APPROVED";
     } else if (action === "REJECT") {
-      nextStatus = "SHARIA_NON_COMPLIANT";
+      nextStatus = "TERMINATED";
     }
 
-    const updatedContract = await prisma.contract.update({
-      where: { id: contractId },
-      data: { status: nextStatus },
-    });
+    const updated = DBRepository.updateContractStatus(contractId, nextStatus as any);
 
     // Record in audit log
     await createAuditLog({
@@ -91,7 +87,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json<ApiResponse>({
       success: true,
       message: `Tindakan persetujuan (${action}) berhasil dicatat.`,
-      data: updatedContract,
+      data: updated || contract,
     });
   } catch (error) {
     return NextResponse.json<ApiResponse>(

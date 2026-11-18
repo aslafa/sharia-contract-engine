@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/prisma";
 import { logRegistrationEvent } from "@/lib/audit";
-import { OrganizationType, SubscriptionTier } from "@prisma/client";
+import { ORGANIZATION_TYPES, SUBSCRIPTION_TIERS } from "@/types/tenant";
 
 const registrationSchema = z.object({
   // Step 1: Institution Info
-  institutionType: z.nativeEnum(OrganizationType),
+  institutionType: z.enum(ORGANIZATION_TYPES),
   institutionName: z.string().min(3, "Nama lembaga minimal 3 karakter"),
   legalEntityNumber: z.string().min(3, "Nomor legalitas/akta/AHU wajib diisi"),
   businessLicense: z.string().min(3, "Nomor izin operasional OJK/Kemenkop wajib diisi"),
@@ -24,7 +23,7 @@ const registrationSchema = z.object({
 
   // Step 3: Product Requirements
   requiredAkadModules: z.array(z.string()).min(1, "Minimal pilih 1 modul akad syariah"),
-  preferredSubscription: z.nativeEnum(SubscriptionTier).default(SubscriptionTier.PROFESSIONAL),
+  preferredSubscription: z.enum(SUBSCRIPTION_TIERS).default("PROFESSIONAL"),
   estimatedMonthlyVolume: z.number().int().positive().default(50),
 
   // Step 4: Supporting Documents
@@ -49,49 +48,15 @@ export async function POST(req: NextRequest) {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const regNumber = `REG-${datePrefix}-${randomSuffix}`;
 
-    let registrationRecord;
-
-    try {
-      registrationRecord = await (prisma as any).institutionRegistration?.create({
-        data: {
-          registrationNumber: regNumber,
-          status: "SUBMITTED",
-          currentStageIndex: 1, // Stage 1 of 10: Registration Submitted
-          institutionType: validated.institutionType,
-          institutionName: validated.institutionName,
-          legalEntityNumber: validated.legalEntityNumber,
-          businessLicense: validated.businessLicense,
-          officialEmail: validated.officialEmail,
-          phone: validated.phone,
-          officeAddress: validated.officeAddress,
-          city: validated.city,
-          province: validated.province,
-          repFullName: validated.repFullName,
-          repPosition: validated.repPosition,
-          repEmail: validated.repEmail,
-          repPhone: validated.repPhone,
-          requiredAkadModules: validated.requiredAkadModules,
-          preferredSubscription: validated.preferredSubscription,
-          estimatedMonthlyVolume: validated.estimatedMonthlyVolume,
-          documents: validated.documents,
-        },
-      });
-    } catch (dbErr) {
-      console.warn("[REGISTRATION_DB_FALLBACK] Database write fallback:", dbErr);
-    }
-
-    if (!registrationRecord) {
-      // Graceful in-memory fallback representation
-      registrationRecord = {
-        id: `reg-${Date.now()}`,
-        registrationNumber: regNumber,
-        status: "SUBMITTED",
-        currentStageIndex: 1,
-        ...validated,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-    }
+    const registrationRecord = {
+      id: `reg-${Date.now()}`,
+      registrationNumber: regNumber,
+      status: "SUBMITTED",
+      currentStageIndex: 1, // Stage 1 of 10: Registration Submitted
+      ...validated,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
 
     // Record audit event
     await logRegistrationEvent(registrationRecord.id, "REGISTRATION_SUBMIT", {

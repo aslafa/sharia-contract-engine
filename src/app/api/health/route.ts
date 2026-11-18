@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import { DBRepository } from "@/lib/db/repository";
 
 export async function GET() {
   const startedAt = Date.now();
-  let dbStatus = "unknown";
+  let dbStatus = "operational";
 
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    dbStatus = "connected";
+    const apps = DBRepository.getApplications();
+    if (!Array.isArray(apps)) {
+      dbStatus = "degraded";
+    }
   } catch (error) {
-    dbStatus = "disconnected";
+    dbStatus = "error";
   }
 
   return NextResponse.json({
@@ -19,6 +21,7 @@ export async function GET() {
     timestamp: new Date().toISOString(),
     latencyMs: Date.now() - startedAt,
     database: dbStatus,
+    storage: "JSON Repository (data/sce_database.json)",
     supportedAkadModules: ["MURABAHAH", "IJARAH", "MUSYARAKAH", "MUDHARABAH"],
   });
 }

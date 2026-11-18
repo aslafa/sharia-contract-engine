@@ -16,14 +16,8 @@ import { SystemRole, SYSTEM_ROLE_DEFINITIONS } from "./roles";
  * switchTenant contracts so guard.ts, session.ts and RBAC remain untouched.
  */
 
-export class AuthError extends Error {
-  public status: number;
-  constructor(message: string, status: number = 401) {
-    super(message);
-    this.name = "AuthError";
-    this.status = status;
-  }
-}
+import { AuthError } from "./json-auth";
+export { AuthError };
 
 export interface AuthenticatedMembership {
   organizationId: string;
